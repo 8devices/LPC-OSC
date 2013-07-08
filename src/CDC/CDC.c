@@ -34,74 +34,64 @@
 
 #include "string.h"
 
-static VCOM_DATA_T *g_vCOM;
 
-/**********************************************************************
- ** Function prototyping
- **********************************************************************/
-void USB_pin_clk_init(void) {
-	/* Enable AHB clock to the GPIO domain. */
-	LPC_SYSCON ->SYSAHBCLKCTRL |= (1 << 6);
+/* Function declarations */
+uint32_t CDC_getPacketSize();
 
-	/* Enable AHB clock to the USB block and USB RAM. */
-	LPC_SYSCON ->SYSAHBCLKCTRL |= ((0x1 << 14) | (0x1 << 27));
+void CDC_readPacket(uint8_t *buf);
 
-	/* Pull-down is needed, or internally, VBUS will be floating. This is to
-	 address the wrong status in VBUSDebouncing bit in CmdStatus register. It
-	 happens on the NXP Validation Board only that a wrong ESD protection chip is used. */
-	LPC_IOCON ->PIO0_3 &= ~0x1F;
-//  LPC_IOCON->PIO0_3   |= ((0x1<<3)|(0x01<<0));	/* Secondary function VBUS */
-	LPC_IOCON ->PIO0_3 |= (0x01 << 0); /* Secondary function VBUS */
-	LPC_IOCON ->PIO0_6 &= ~0x07;
-	LPC_IOCON ->PIO0_6 |= (0x01 << 0); /* Secondary function SoftConn */
+void CDC_writePacket(uint8_t *buf, uint32_t size);
 
-	return;
-}
+void USB_pin_clk_init(void);
 
-void VCOM_usb_send(VCOM_DATA_T* pVcom) {
-	/* data received send it back */
-	pVcom->txlen -= pUsbApi->hw->WriteEP(pVcom->hUsb, USB_CDC_EP_BULK_IN,
-			pVcom->txBuf, pVcom->txlen);
-}
+/* Private variable declaration */
+USBD_API_T   *pUsbApi;
+USBD_HANDLE_T pUsbHandle;
 
-void VCOM_usb_send2(VCOM_DATA_T* pVcom, uint8_t *buf, uint32_t size) {
-	while (size > 0) {
-		uint32_t sent = pUsbApi->hw->WriteEP(pVcom->hUsb, USB_CDC_EP_BULK_IN, buf, size);
-		buf += sent;
-		size -= sent;
-	}
-}
+uint8_t		*tmpRxBuf;
+
+#define RX_BUFFER_SIZE_N	7
+#define RX_BUFFER_MASK		((1 << RX_BUFFER_SIZE_N) - 1)
+volatile uint8_t  rxBuffer[1 << RX_BUFFER_SIZE_N];
+volatile uint32_t rxBufferWritePos;
+volatile uint32_t rxBufferReadPos;
+
+#define rxBufferAvailable()  ((rxBufferWritePos-rxBufferReadPos) & RX_BUFFER_MASK)
+#define rxBufferFree()       ((rxBufferReadPos-1-rxBufferWritePos) & RX_BUFFER_MASK)
 
 ErrorCode_t VCOM_bulk_in_hdlr(USBD_HANDLE_T hUsb, void* data, uint32_t event) {
 	return LPC_OK;
 }
 
 ErrorCode_t VCOM_bulk_out_hdlr(USBD_HANDLE_T hUsb, void* data, uint32_t event) {
-	VCOM_DATA_T* pVcom = (VCOM_DATA_T*) data;
 
 	switch (event) {
-	case USB_EVT_OUT:
+		case USB_EVT_OUT: {
+			uint32_t rxLen = pUsbApi->hw->ReadEP(hUsb, USB_CDC_EP_BULK_OUT, tmpRxBuf);
 
-		if (pVcom->rxlen == 0) {
-			pVcom->rxlen = pUsbApi->hw->ReadEP(hUsb, USB_CDC_EP_BULK_OUT,
-					pVcom->rxBuf);
-			pVcom->send_fn(pVcom);
-		} else {
-			/* indicate bridge write buffer pending in USB buf */
-			pVcom->usbrx_pend = 1;
+			if (rxBufferFree() < rxLen) {	// Buffer overflow
+				rxBufferWritePos = 0;
+				rxBufferReadPos = 0;
+			} else {
+				uint8_t *ptr = tmpRxBuf;
+				while (rxLen--) {
+					rxBuffer[rxBufferWritePos & RX_BUFFER_MASK] = *ptr++;
+					rxBufferWritePos++;
+				}
+			}
+			break;
 		}
-		break;
-	default:
-		break;
+		default:
+			break;
 	}
 	return LPC_OK;
 }
 
 void USB_IRQHandler(void) {
-	pUsbApi->hw->ISR(g_vCOM->hUsb);
+	pUsbApi->hw->ISR(pUsbHandle);
 }
 
-ErrorCode_t InitCDC(VCOM_DATA_T *vcom) {
+ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 	USBD_API_INIT_PARAM_T usb_param;
 	USBD_CDC_INIT_PARAM_T cdc_param;
 	USB_CORE_DESCS_T desc;
@@ -109,15 +99,13 @@ ErrorCode_t InitCDC(VCOM_DATA_T *vcom) {
 	ErrorCode_t ret = LPC_OK;
 	uint32_t ep_indx;
 
-	g_vCOM = vcom;
-
 	/* get USB API table pointer */
 	pUsbApi = (USBD_API_T*) ((*(ROM **) (0x1FFF1FF8))->pUSBD);
 
 	/* enable clocks and pinmux for usb0 */
 	USB_pin_clk_init();
 
-	/* initilize call back structures */
+	/* initialize call back structures */
 	memset((void*) &usb_param, 0, sizeof(USBD_API_INIT_PARAM_T));
 	usb_param.usb_reg_base = LPC_USB_BASE;
 	usb_param.mem_base = 0x10001000;
@@ -126,7 +114,6 @@ ErrorCode_t InitCDC(VCOM_DATA_T *vcom) {
 
 	/* init CDC params */
 	memset((void*) &cdc_param, 0, sizeof(USBD_CDC_INIT_PARAM_T));
-	memset((void*) vcom, 0, sizeof(VCOM_DATA_T));
 
 	/* Initialize Descriptor pointers */
 	memset((void*) &desc, 0, sizeof(USB_CORE_DESCS_T));
@@ -144,41 +131,33 @@ ErrorCode_t InitCDC(VCOM_DATA_T *vcom) {
 	// init CDC params
 	cdc_param.mem_base = 0x10001500;
 	cdc_param.mem_size = 0x300;
-	cdc_param.cif_intf_desc =
-			(uint8_t *) &VCOM_ConfigDescriptor[USB_CONFIGUARTION_DESC_SIZE];
-	cdc_param.dif_intf_desc =
-			(uint8_t *) &VCOM_ConfigDescriptor[USB_CONFIGUARTION_DESC_SIZE+ USB_INTERFACE_DESC_SIZE + 0x0013
-			+ USB_ENDPOINT_DESC_SIZE];
+	cdc_param.cif_intf_desc = (uint8_t *) &VCOM_ConfigDescriptor[USB_CONFIGUARTION_DESC_SIZE];
+	cdc_param.dif_intf_desc = (uint8_t *) &VCOM_ConfigDescriptor[USB_CONFIGUARTION_DESC_SIZE+ USB_INTERFACE_DESC_SIZE + 0x0013 + USB_ENDPOINT_DESC_SIZE];
 
 	ret = pUsbApi->cdc->init(hUsb, &cdc_param, &hCdc);
 
 	if (ret != LPC_OK)
 		return ret;
 
-	/* store USB handle */
-	vcom->hUsb = hUsb;
-	vcom->hCdc = hCdc;
-	vcom->send_fn = VCOM_usb_send;
+	/* Initialize private data */
+	pUsbHandle = hUsb;
 
-	/* allocate transfer buffers */
-	vcom->rxBuf =
-			(uint8_t*) (cdc_param.mem_base + (0 * USB_HS_MAX_BULK_PACKET));
-	vcom->txBuf =
-			(uint8_t*) (cdc_param.mem_base + (1 * USB_HS_MAX_BULK_PACKET));
+	rxBufferReadPos = 0;
+	rxBufferWritePos = 0;
+
+	tmpRxBuf = (uint8_t*) (cdc_param.mem_base + (0 * USB_HS_MAX_BULK_PACKET));
 	cdc_param.mem_size -= (4 * USB_HS_MAX_BULK_PACKET);
 
 	/* register endpoint interrupt handler */
 	ep_indx = (((USB_CDC_EP_BULK_IN & 0x0F) << 1) + 1);
-	ret = pUsbApi->core->RegisterEpHandler(hUsb, ep_indx, VCOM_bulk_in_hdlr,
-			vcom);
+	ret = pUsbApi->core->RegisterEpHandler(hUsb, ep_indx, VCOM_bulk_in_hdlr, NULL);
 
 	if (ret != LPC_OK)
 		return ret;
 
 	/* register endpoint interrupt handler */
 	ep_indx = ((USB_CDC_EP_BULK_OUT & 0x0F) << 1);
-	ret = pUsbApi->core->RegisterEpHandler(hUsb, ep_indx, VCOM_bulk_out_hdlr,
-			vcom);
+	ret = pUsbApi->core->RegisterEpHandler(hUsb, ep_indx, VCOM_bulk_out_hdlr, NULL);
 
 	if (ret != LPC_OK)
 		return ret;
@@ -189,5 +168,82 @@ ErrorCode_t InitCDC(VCOM_DATA_T *vcom) {
 	/* USB Connect */
 	pUsbApi->hw->Connect(hUsb, 1);
 
+	stream->getPacketSize = CDC_getPacketSize;
+	stream->readPacket = CDC_readPacket;
+	stream->writePacket = CDC_writePacket;
+
 	return LPC_OK;
+}
+
+uint32_t CDC_getPacketSize() {
+	uint32_t size = 0;
+	uint32_t available = rxBufferAvailable();
+
+	while (available > 4) { // while at least header + 1 byte is available
+		if (rxBuffer[rxBufferReadPos & RX_BUFFER_MASK] == 'S' && rxBuffer[(rxBufferReadPos + 1) & RX_BUFFER_MASK] == 'T') {
+			size = (rxBuffer[(rxBufferReadPos + 2) & RX_BUFFER_MASK] << 8)
+				  | rxBuffer[(rxBufferReadPos + 3) & RX_BUFFER_MASK];
+		}
+
+		if (size == 0) {
+			rxBufferReadPos++;
+			available--;
+		} else {
+			if (available + 4 >= size) // packet (+header) is ready
+				return size;
+			else 	// packet not yet arrived
+				return 0;
+		}
+	}
+
+	return 0;
+}
+
+void CDC_readPacket(uint8_t *buf) {
+	uint32_t size = CDC_getPacketSize();
+
+	rxBufferReadPos += 4;	// skip the header
+
+	while (size--) {
+		*buf++ = rxBuffer[rxBufferReadPos & RX_BUFFER_MASK];
+		rxBufferReadPos++;
+	}
+}
+
+void inline CDC_writeData(uint8_t *buf, uint32_t size) {
+	while (size > 0) {
+		uint32_t sent = pUsbApi->hw->WriteEP(pUsbHandle, USB_CDC_EP_BULK_IN, buf, size);
+		buf += sent;
+		size -= sent;
+	}
+}
+
+void CDC_writePacket(uint8_t *buf, uint32_t size) {
+	/*uint8_t header[] = { 'S', 'T', '\0', '\0' };
+
+	header[2] = (size >> 8) & 0xFF;
+	header[3] = size & 0xFF;
+
+	CDC_writeData(header, 4); // This is bugged at the moment */
+	CDC_writeData(buf, size);
+}
+
+
+void USB_pin_clk_init(void) {
+	/* Enable AHB clock to the GPIO domain. */
+	LPC_SYSCON ->SYSAHBCLKCTRL |= (1 << 6);
+
+	/* Enable AHB clock to the USB block and USB RAM. */
+	LPC_SYSCON ->SYSAHBCLKCTRL |= ((0x1 << 14) | (0x1 << 27));
+
+	/* Pull-down is needed, or internally, VBUS will be floating. This is to
+	 address the wrong status in VBUSDebouncing bit in CmdStatus register. It
+	 happens on the NXP Validation Board only that a wrong ESD protection chip is used. */
+	LPC_IOCON ->PIO0_3 &= ~0x1F;
+//  LPC_IOCON->PIO0_3   |= ((0x1<<3)|(0x01<<0));	/* Secondary function VBUS */
+	LPC_IOCON ->PIO0_3 |= (0x01 << 0); /* Secondary function VBUS */
+	LPC_IOCON ->PIO0_6 &= ~0x07;
+	LPC_IOCON ->PIO0_6 |= (0x01 << 0); /* Secondary function SoftConn */
+
+	return;
 }

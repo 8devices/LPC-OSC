@@ -39,8 +39,6 @@
 
 #include "OSC/OSC.h"
 
-#include "CDC/CDCPacketStream.h"
-
 #include <MemoryManager/MemoryManager.h>
 
 OSCPacketStream stream;

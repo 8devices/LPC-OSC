@@ -32,6 +32,8 @@
 
 #include "main.h"
 
+#include "CDC/CDC.h"
+
 #include "Modules/LPC_GPIO.h"
 #include "Modules/LPC_ADC.h"
 #include "Modules/LPC_UART.h"
@@ -126,7 +128,8 @@ int main(void) {
 	system_time.raw = OSCTimetag_immediately;
 	SysTick_Config(SystemCoreClock/1000);	// Configure Systick to run at 1kHz (1ms)
 
-	while (CDCPacketStream_init(&stream) != 0);	// Load OSCPacketStream
+	//while (CDCPacketStream_init(&stream) != 0);
+	while (CDC_Init(&stream) != LPC_OK); // Load OSCPacketStream
 
 	LPC_SYSCON->SYSAHBCLKCTRL |= BIT6 | BIT16 | BIT19; // Enable clock for GPIO, IOConfig and Pin Interrupts
 
