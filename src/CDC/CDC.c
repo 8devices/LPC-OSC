@@ -49,6 +49,7 @@ USBD_API_T   *pUsbApi;
 USBD_HANDLE_T pUsbHandle;
 
 uint8_t		*tmpRxBuf;
+uint8_t		*tmpTxBuf;
 
 #define RX_BUFFER_SIZE_N	7
 #define RX_BUFFER_MASK		((1 << RX_BUFFER_SIZE_N) - 1)
@@ -59,7 +60,10 @@ volatile uint32_t rxBufferReadPos;
 #define rxBufferAvailable()  ((rxBufferWritePos-rxBufferReadPos) & RX_BUFFER_MASK)
 #define rxBufferFree()       ((rxBufferReadPos-1-rxBufferWritePos) & RX_BUFFER_MASK)
 
+volatile uint8_t txReady;
+
 ErrorCode_t VCOM_bulk_in_hdlr(USBD_HANDLE_T hUsb, void* data, uint32_t event) {
+	txReady = 1;
 	return LPC_OK;
 }
 
@@ -146,7 +150,10 @@ ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 	rxBufferWritePos = 0;
 
 	tmpRxBuf = (uint8_t*) (cdc_param.mem_base + (0 * USB_HS_MAX_BULK_PACKET));
+	tmpTxBuf = (uint8_t*) (cdc_param.mem_base + (1 * USB_HS_MAX_BULK_PACKET));
 	cdc_param.mem_size -= (4 * USB_HS_MAX_BULK_PACKET);
+
+	txReady = 1;
 
 	/* register endpoint interrupt handler */
 	ep_indx = (((USB_CDC_EP_BULK_IN & 0x0F) << 1) + 1);
@@ -210,22 +217,31 @@ void CDC_readPacket(uint8_t *buf) {
 	}
 }
 
-void inline CDC_writeData(uint8_t *buf, uint32_t size) {
+void CDC_writePacket(uint8_t *buf, uint32_t size) {
+	tmpTxBuf[0] = 'S';
+	tmpTxBuf[1] = 'T';
+	tmpTxBuf[2] = (size >> 8);
+	tmpTxBuf[3] = size & 0xFF;
+
+	memcpy(tmpTxBuf+4, buf, (size > 60 ? 60 : size));
+
+	size += 4;
+
+	uint32_t sent = 0;
 	while (size > 0) {
-		uint32_t sent = pUsbApi->hw->WriteEP(pUsbHandle, USB_CDC_EP_BULK_IN, buf, size);
+		txReady = 0;
+		sent = pUsbApi->hw->WriteEP(pUsbHandle, USB_CDC_EP_BULK_IN, tmpTxBuf, (size > 64 ? 64 : size));
 		buf += sent;
 		size -= sent;
+		while (!txReady); // block until data is sent
+
+		if (size > 0)
+			memcpy(tmpTxBuf, buf, (size > 64 ? 64 : size));
 	}
-}
 
-void CDC_writePacket(uint8_t *buf, uint32_t size) {
-	/*uint8_t header[] = { 'S', 'T', '\0', '\0' };
-
-	header[2] = (size >> 8) & 0xFF;
-	header[3] = size & 0xFF;
-
-	CDC_writeData(header, 4); // This is bugged at the moment */
-	CDC_writeData(buf, size);
+	if (sent == 64) { // if final packet was full
+		pUsbApi->hw->WriteEP(pUsbHandle, USB_CDC_EP_BULK_IN, NULL, 0); // send ZLP
+	}
 }
 
 
