@@ -241,6 +241,7 @@ void lpc_attachInterrupt(OSCMessage *msg) {
 
 	LPC_GPIO_PIN_INT->RISE = (1 << p_intID);	// Clear rising edge (sort of) flag
 	LPC_GPIO_PIN_INT->FALL = (1 << p_intID);	// Clear falling edge (sort of) flag
+	NVIC_SetPriority(p_intID, 3); // set lowest priority
 	NVIC_EnableIRQ(p_intID);	// Enable interrupt. XXX: Luckily FLEX_INTx_IRQn == x, so it can be used this way, otherwise BE AWARE!
 }
 

@@ -68,6 +68,7 @@ void lpc_serial_begin(OSCMessage *msg) {
 	UART_RX_Index = 0;
 
 	LPC_USART->IER = BIT0 | BIT2;	// Enable RDA and RLS interrupts
+	NVIC_SetPriority(UART_IRQn, 2);
 	NVIC_EnableIRQ(UART_IRQn);
 
 }

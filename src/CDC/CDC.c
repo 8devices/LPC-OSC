@@ -170,6 +170,7 @@ ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 		return ret;
 
 	/* enable IRQ */
+	NVIC_SetPriority(USB_IRQn, 0); // give highest priority to USB
 	NVIC_EnableIRQ(USB_IRQn); //  enable USB0 interrrupts
 
 	/* USB Connect */
