@@ -36,7 +36,6 @@
 
 #include "Modules/LPC_GPIO.h"
 #include "Modules/LPC_ADC.h"
-#include "Modules/LPC_UART.h"
 #include "Modules/LPC_SPI.h"
 #include "Modules/LPC_I2C.h"
 #include "Modules/LPC_PWM.h"
@@ -169,11 +168,6 @@ int main(void) {
 
 	/* ADC functions */
 	OSCServer_addMessageHandler(server, "/lpc/analogRead", lpc_analogRead);
-
-	/* USART (Serial) functions */
-	OSCServer_addMessageHandler(server, "/lpc/serial/begin", lpc_serial_begin);
-	OSCServer_addMessageHandler(server, "/lpc/serial/write", lpc_serial_write);
-	OSCServer_addMessageHandler(server, "/lpc/serial/end", lpc_serial_end);
 
 	/* SPI functions */
 	OSCServer_addMessageHandler(server, "/lpc/spi0/begin", lpc_spi0_begin);
