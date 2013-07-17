@@ -96,6 +96,15 @@ ErrorCode_t EP0_hdlr(USBD_HANDLE_T hUsb, void* data, uint32_t event) {
 			receiveLineCoding = 0;
 		}
 
+		if (packet.bmRequestType.B == 0x80 // Setup Device to Host
+				&& packet.bRequest == 0x06 // Get descriptor
+				&& packet.wValue.WB.H == 0x06 // Get Device Qualifier Descriptor
+				) {
+			uint8_t dq[] = { 0x0A, USB_DEVICE_QUALIFIER_DESCRIPTOR_TYPE, WBVAL(0x0200), 0xEF, 0x02, 0x01, USB_MAX_PACKET0, 0x01, 0x00 };
+			pUsbApi->hw->WriteEP(pUsbHandle, USB_ENDPOINT_IN(0), dq, 10);
+			return LPC_OK;
+		}
+
 		if ((packet.bmRequestType.B & 0x7F) == 0x21) { // Type=Class, Recipient=Interface
 			if (packet.wIndex.W == 2) { // OSC CDC CIF interface (2)
 				switch (packet.bRequest) {
