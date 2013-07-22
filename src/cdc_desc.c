@@ -43,8 +43,8 @@ ALIGN4 const uint8_t VCOM_DeviceDescriptor[] = {
   0x02,                              /* bDeviceSubClass */
   0x01,                              /* bDeviceProtocol - Interface Association Descriptor */
   USB_MAX_PACKET0,                   /* bMaxPacketSize0 */
-  WBVAL(0x04D8),                     /* idVendor */
-  WBVAL(0x000A),                     /* idProduct */
+  WBVAL(0x257F),                     /* idVendor */
+  WBVAL(0x0001),                     /* idProduct */
   WBVAL(0x0100), /* 1.00 */          /* bcdDevice */
   0x01,                              /* iManufacturer */
   0x02,                              /* iProduct */
@@ -172,7 +172,7 @@ ALIGN4 const uint8_t VCOM_ConfigDescriptor[] = {
   CDC_COMMUNICATION_INTERFACE_CLASS, /* bInterfaceClass: Communication Interface Class */
   CDC_ABSTRACT_CONTROL_MODEL,        /* bInterfaceSubClass: Abstract Control Model */
   0x00,                              /* bInterfaceProtocol: no protocol used */
-  0x00,                              /* iInterface: */
+  0x05,                              /* iInterface: */
 
   /* Interface 2, Alternate Setting 0, Communication class interface descriptor */
     USB_INTERFACE_DESC_SIZE,           /* bLength */
@@ -183,7 +183,7 @@ ALIGN4 const uint8_t VCOM_ConfigDescriptor[] = {
     CDC_COMMUNICATION_INTERFACE_CLASS, /* bInterfaceClass: Communication Interface Class */
     CDC_ABSTRACT_CONTROL_MODEL,        /* bInterfaceSubClass: Abstract Control Model */
     0x00,                              /* bInterfaceProtocol: no protocol used */
-    0x00,                              /* iInterface: */
+    0x05,                              /* iInterface: */
   /*Header Functional Descriptor*/
     0x05,                              /* bLength: Endpoint Descriptor size */
     CDC_CS_INTERFACE,                  /* bDescriptorType: CS_INTERFACE */
@@ -214,7 +214,7 @@ ALIGN4 const uint8_t VCOM_ConfigDescriptor[] = {
     WBVAL(0x0010),                     /* wMaxPacketSize */
     0x02,          /* 2ms */           /* bInterval */
 
-  /* Interface 1, Alternate Setting 0, Data class interface descriptor*/
+  /* Interface 3, Alternate Setting 0, Data class interface descriptor*/
     USB_INTERFACE_DESC_SIZE,           /* bLength */
     USB_INTERFACE_DESCRIPTOR_TYPE,     /* bDescriptorType */
     3, 				                  /* bInterfaceNumber: Number of Interface */
@@ -223,7 +223,7 @@ ALIGN4 const uint8_t VCOM_ConfigDescriptor[] = {
     CDC_DATA_INTERFACE_CLASS,          /* bInterfaceClass: Data Interface Class */
     0x00,                              /* bInterfaceSubClass: no subclass available */
     0x00,                              /* bInterfaceProtocol: no protocol used */
-    0x04,                              /* iInterface: */
+    0x05,                              /* iInterface: */
   /* Endpoint, EP3 Bulk Out */
     USB_ENDPOINT_DESC_SIZE,            /* bLength */
     USB_ENDPOINT_DESCRIPTOR_TYPE,      /* bDescriptorType */
@@ -250,29 +250,74 @@ ALIGN4 const uint8_t VCOM_StringDescriptor[] = {
   USB_STRING_DESCRIPTOR_TYPE,        /* bDescriptorType */
   WBVAL(0x0409), /* US English */    /* wLANGID */
   /* Index 0x01: Manufacturer */
-  (3*2 + 2),                        /* bLength (3 Char + Type + lenght) */
+  (8*2 + 2),                        /* bLength (8 Char + Type + length) */
   USB_STRING_DESCRIPTOR_TYPE,        /* bDescriptorType */
-  'N', 0,
-  'X', 0,
-  'P', 0,
+  '8', 0,
+  'd', 0,
+  'e', 0,
+  'v', 0,
+  'i', 0,
+  'c', 0,
+  'e', 0,
+  's', 0,
   /* Index 0x02: Product */
-  (3*2 + 2),                        /* bLength (3 Char + Type + lenght) */
+  (21*2 + 2),                        /* bLength (21 Char + Type + length) */
   USB_STRING_DESCRIPTOR_TYPE,        /* bDescriptorType */
-  'L', 0,
+  'C', 0,
+  'a', 0,
+  'r', 0,
+  'a', 0,
+  'm', 0,
+  'b', 0,
+  'o', 0,
+  'l', 0,
+  'a', 0,
+  '2', 0,
+  ' ', 0,
+  'U', 0,
   'P', 0,
-  'C', 0,
+  'E', 0,
+  'R', 0,
+  ' ', 0,
+  'b', 0,
+  'o', 0,
+  'a', 0,
+  'r', 0,
+  'd', 0,
   /* Index 0x03: Serial Number */
-  (4*2 + 2),                        /* bLength (4 Char + Type + lenght) */
+  (8*2 + 2),                        /* bLength (8 Char + Type + length) */
   USB_STRING_DESCRIPTOR_TYPE,        /* bDescriptorType */
-  'A', 0,
-  'B', 0,
-  'C', 0,
-  'D', 0,
+  'R', 0,
+  'e', 0,
+  'v', 0,
+  ' ', 0,
+  '0', 0,
+  '.', 0,
+  '9', 0,
+  'b', 0,
 /* Index 0x04: Interface 0, Alternate Setting 0 */
-  ( 4*2 + 2),                        /* bLength (4 Char + Type + lenght) */
+  ( 11*2 + 2),                        /* bLength (11 Char + Type + length) */
   USB_STRING_DESCRIPTOR_TYPE,        /* bDescriptorType */
-  'V',0,
-  'C',0,
+  'U',0,
+  'A',0,
+  'R',0,
+  'T',0,
+  ' ', 0,
+  'B', 0,
+  'r', 0,
+  'i', 0,
+  'd', 0,
+  'g', 0,
+  'e', 0,
+  /* Index 0x05: Interface 2, Alternate Setting 0 */
+  ( 8*2 + 2),                        /* bLength (8 Char + Type + length) */
+  USB_STRING_DESCRIPTOR_TYPE,        /* bDescriptorType */
   'O',0,
-  'M',0,
+  'S',0,
+  'C',0,
+  ' ',0,
+  'V', 0,
+  'C', 0,
+  'O', 0,
+  'M', 0,
 };
