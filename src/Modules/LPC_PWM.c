@@ -48,12 +48,12 @@ void lpc_pwm0_begin(OSCMessage *msg) {
 
 	LPC_CT16B0->MCR = BIT10; // Reset timer on MR3
 	LPC_CT16B0->MR3 = p_cyclePeriod; // Set PWM cycle period
-	//LPC_CT16B0->MR2 = p_cyclePeriod; // Set full low time for PWM2
-	//LPC_CT16B0->MR1 = p_cyclePeriod; // Set full low time for PWM1
-	//LPC_CT16B0->MR0 = p_cyclePeriod; // Set full low time for PWM0
+	LPC_CT16B0->MR2 = p_cyclePeriod; // Set full low time for PWM2
+	LPC_CT16B0->MR1 = p_cyclePeriod; // Set full low time for PWM1
+	LPC_CT16B0->MR0 = p_cyclePeriod; // Set full low time for PWM0
 
-	LPC_CT16B0->EMR = 0;	// All external outputs disabled
-	LPC_CT16B0->PWMC = 0;	// All PWM channels disabled
+	LPC_CT16B0->EMR = 0x02A0; // External outputs enabled: channels 0-2 set high on match
+	LPC_CT16B0->PWMC = 0x7;   // PWM channels enabled: set channels 0-2 to PWM control
 
 	LPC_CT16B0->TCR &= ~BIT1;	// disable reset
 }
@@ -70,8 +70,6 @@ void lpc_pwm0_set(OSCMessage *msg) {
 	if (p_channelID > 2) return;
 
 	LPC_CT16B0->MR[p_channelID] = (LPC_CT16B0->MR3 & 0xFFFF) - p_highTime;	// Set PWM low time
-	LPC_CT16B0->EMR |= ((1 << p_channelID) | (0x2 << (p_channelID+p_channelID+4))); // Connect channel output to pin and set pin high on match
-	LPC_CT16B0->PWMC |= (1 << p_channelID);	// Enable PWM mode for the channel
 }
 
 void lpc_pwm0_end(OSCMessage *msg) {
