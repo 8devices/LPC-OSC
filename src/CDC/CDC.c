@@ -322,9 +322,6 @@ ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 	usb_param.mem_size = 0x1000;
 	usb_param.max_num_ep = 10;
 
-	/* init CDC params */
-	memset((void*) &cdc_param, 0, sizeof(USBD_CDC_INIT_PARAM_T));
-
 	/* Initialize Descriptor pointers */
 	memset((void*) &desc, 0, sizeof(USB_CORE_DESCS_T));
 	desc.device_desc = (uint8_t *) &VCOM_DeviceDescriptor[0];
