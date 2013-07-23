@@ -35,9 +35,24 @@
 
 #include "string.h"
 
+/* Type declarations */
+typedef enum {
+	STOP_BIT_1 = 0,
+	STOP_BIT_1_5 = 1,
+	STOP_BIT_2 = 2,
+} stop_bits_t;
+
+typedef enum {
+	PARITY_NONE = 0,
+	PARITY_ODD  = 1,
+	PARITY_EVEN = 2,
+	PARITY_MARK = 3,
+	PARITY_SPACE= 4,
+} parity_t;
+
 
 /* Function declarations */
-void UART_Init(uint32_t baudrate);
+void UART_Init(uint32_t baudrate, uint8_t dataBits, parity_t parity, stop_bits_t stopBits);
 void UART_Close();
 void UART_Flush();
 
@@ -51,12 +66,18 @@ void USB_pin_clk_init(void);
 USBD_API_T   *pUsbApi;
 USBD_HANDLE_T pUsbHandle;
 
-//uint8_t		*tmpRxBuf;
-//uint8_t		*tmpTxBuf;
 volatile uint8_t tmpRxBuf[USB_HS_MAX_BULK_PACKET];
 volatile uint8_t tmpTxBuf[USB_HS_MAX_BULK_PACKET];
 
 /* UART Bridge variables */
+
+volatile struct {
+	uint32_t baudrate;
+	stop_bits_t stopBits;
+	parity_t parity;
+	uint8_t dataBits;
+} CDC_UART_Config;
+
 volatile uint8_t CDC_UART_txBuffer[USB_HS_MAX_BULK_PACKET];
 volatile uint32_t CDC_UART_txBufferSize;
 volatile uint32_t CDC_UART_txBufferSent;
@@ -81,83 +102,122 @@ volatile uint8_t CDC_OSC_txReady;
 
 
 /* USB and ISR handlers */
-volatile uint8_t receiveLineCoding = 0;
+#define REQ_TYPE( direction, type, recipient )  ((direction<<7)|(type<<5)|recipient)
+
 ErrorCode_t EP0_hdlr(USBD_HANDLE_T hUsb, void* data, uint32_t event) {
-	if (receiveLineCoding) {
-		receiveLineCoding = 3;
-	}
 
+	USB_CORE_CTRL_T* pCtrl = (USB_CORE_CTRL_T*)hUsb;
+	static USB_SETUP_PACKET packet;
+	pUsbApi->hw->ReadSetupPkt( hUsb, USB_ENDPOINT_OUT(0), (uint32_t *)&packet );
 
-	if (event == USB_EVT_SETUP) {
-		USB_SETUP_PACKET packet;
-		uint32_t len = pUsbApi->hw->ReadSetupPkt(hUsb, USB_ENDPOINT_OUT(0), (uint32_t*)&packet);
+	switch (event) {
+		case USB_EVT_SETUP:
 
-		if (receiveLineCoding) {
-			receiveLineCoding = 0;
-		}
-
-		if (packet.bmRequestType.B == 0x80 // Setup Device to Host
-				&& packet.bRequest == 0x06 // Get descriptor
-				&& packet.wValue.WB.H == 0x06 // Get Device Qualifier Descriptor
+			if (packet.bmRequestType.B == 0x80 // Setup Device to Host
+					&& packet.bRequest == 0x06 // Get descriptor
+					&& packet.wValue.WB.H == 0x06 // Get Device Qualifier Descriptor
 				) {
-			uint8_t dq[] = { 0x0A, USB_DEVICE_QUALIFIER_DESCRIPTOR_TYPE, WBVAL(0x0200), 0xEF, 0x02, 0x01, USB_MAX_PACKET0, 0x01, 0x00 };
-			pUsbApi->hw->WriteEP(pUsbHandle, USB_ENDPOINT_IN(0), dq, 10);
-			return LPC_OK;
-		}
+				uint8_t dq[] = { 0x0A, USB_DEVICE_QUALIFIER_DESCRIPTOR_TYPE,
+						WBVAL(0x0200), 0xEF, 0x02, 0x01, USB_MAX_PACKET0, 0x01,
+						0x00 };
+				pUsbApi->hw->WriteEP(pUsbHandle, USB_ENDPOINT_IN(0), dq, 10);
+				return LPC_OK;
+			}
 
-		if ((packet.bmRequestType.B & 0x7F) == 0x21) { // Type=Class, Recipient=Interface
-			if (packet.wIndex.W == 2) { // OSC CDC CIF interface (2)
-				switch (packet.bRequest) {
-					case 0x20: { // SET_LINE_CODING
-						if (packet.wLength != 7)
-							return ERR_USBD_INVALID_REQ;
-						receiveLineCoding = 1;
-						pUsbApi->hw->EnableEvent(pUsbHandle, 0x00, USB_EVT_OUT, 1);
-						pUsbApi->hw->EnableEvent(pUsbHandle, 0x00, USB_EVT_IN, 1);
-						//uint8_t lcsLen = pUsbApi->hw->ReadReqEP(pUsbHandle, USB_ENDPOINT_OUT(0), (uint8_t*)tmpRxBuf, 7);
-						//return ERR_USBD_SEND_DATA;
 
-						//uint8_t lcsLen = pUsbApi->hw->ReadReqEP(pUsbHandle, USB_ENDPOINT_OUT(0), (uint8_t*)tmpRxBuf, 64);
-						//pUsbApi->hw->WriteEP(pUsbHandle, USB_ENDPOINT_IN(0), (uint8_t*)tmpRxBuf, 0);
-						//return ERR_USBD_UNHANDLED;
+			pCtrl->EP0Data.Count = packet.wLength;   // Number of bytes to transfer
 
-						//pUsbApi->hw->WriteEP(pUsbHandle, USB_ENDPOINT_IN(0), NULL, 0);
-						return ERR_USBD_UNHANDLED;
-					}
-					case 0x21: { // GET_LINE_CODING
-						if (packet.wLength != 7)
-							return ERR_USBD_INVALID_REQ;
+			if ( (packet.bmRequestType.B == REQ_TYPE(REQUEST_HOST_TO_DEVICE,REQUEST_CLASS,REQUEST_TO_INTERFACE) )
+				  && (packet.bRequest        == 0x20 ) // SetLineCoding
+				  && (packet.wValue.W        == (0<<8) )    // descriptor type | index
+				  && ((packet.wIndex.W == 0) || (packet.wIndex.W == 2))
+				) {
 
-						uint8_t lcs[] = { 0x80, 0x25, 0x00, 0x00, 0x00, 0x00, 0x08 };
-						pUsbApi->hw->WriteEP(pUsbHandle, USB_ENDPOINT_IN(0), lcs, 7);
-						return LPC_OK;
-					}
-					case 0x22: { // SET_CONTROL_LINE_STATE
-						if (packet.wLength != 0)
-							return ERR_USBD_INVALID_REQ;
+				pCtrl->EP0Data.pData = pCtrl->EP0Buf;
+				pCtrl->EP0Data.Count = 7;
+				//pUsbApi->core->DataOutStage( hUsb );
+				pUsbApi->core->StatusInStage(hUsb);
+				return LPC_OK;
+			}
 
-						pUsbApi->hw->WriteEP(pUsbHandle, USB_ENDPOINT_IN(0), NULL, 0);
-						return LPC_OK;
-					}
+			if ( (packet.bmRequestType.B == REQ_TYPE(REQUEST_DEVICE_TO_HOST,REQUEST_CLASS,REQUEST_TO_INTERFACE) )
+				  && (packet.bRequest        == 0x21 ) // GetLineCoding
+				  && (packet.wValue.W        == (0<<8) )  // Report type | Report ID
+				  && ((packet.wIndex.W == 0) || (packet.wIndex.W == 2))
+				) {
+				uint8_t lcs[] = { 0x80, 0x25, 0x00, 0x00, 0x00, 0x00, 0x08 }; // Default 9600 8n1
+
+				if (packet.wIndex.W == 0) {
+					lcs[0] = CDC_UART_Config.baudrate;
+					lcs[1] = CDC_UART_Config.baudrate >> 8;
+					lcs[2] = CDC_UART_Config.baudrate >> 16;
+					lcs[3] = CDC_UART_Config.baudrate >> 24;
+
+					lcs[4] = CDC_UART_Config.stopBits;
+
+					lcs[5] = CDC_UART_Config.parity;
+
+					lcs[6] = CDC_UART_Config.dataBits;
+				}
+
+				pCtrl->EP0Data.Count = 7;
+				pCtrl->EP0Data.pData = (uint8_t*)&lcs;
+				pUsbApi->core->DataInStage(hUsb);
+
+				return LPC_OK;
+			}
+
+			if ( (packet.bmRequestType.B == REQ_TYPE(REQUEST_HOST_TO_DEVICE,REQUEST_CLASS,REQUEST_TO_INTERFACE) )
+				  && (packet.bRequest        == 0x22 ) // SetControlLineState
+				  && ((packet.wIndex.W == 0) || (packet.wIndex.W == 2)) // Both interfaces
+				) {
+				pUsbApi->core->StatusInStage(hUsb);
+				return LPC_OK;
+			}
+
+			break;
+		case USB_EVT_OUT:
+			if (pCtrl->EP0Data.Count > 0) {
+				pUsbApi->core->DataOutStage(hUsb);
+			} else {
+				pUsbApi->core->StatusInStage(hUsb);
+
+				if ( (packet.bmRequestType.B == REQ_TYPE(REQUEST_HOST_TO_DEVICE,REQUEST_CLASS,REQUEST_TO_INTERFACE) )
+					  && (packet.bRequest        == 0x20 ) // SetLineCoding
+					  && (packet.wValue.W        == (0<<8) )    // descriptor type | index
+					  && ((packet.wIndex.W == 0))
+					) {
+					uint8_t *ptr = pCtrl->EP0Buf;
+					uint32_t baudrate = *ptr | (*(ptr+1) << 8) | (*(ptr+2) << 16) | (*(ptr+3) << 24);
+					ptr += 4;
+					uint8_t stopbits = *ptr++;
+					uint8_t parity = *ptr++;
+					uint8_t dataBits = *ptr++;
+
+					UART_Init(baudrate, dataBits, parity, stopbits);
 				}
 			}
-		}
-	} else if (event == USB_EVT_OUT) {
-		receiveLineCoding = 0;
-		if (receiveLineCoding) {
-			//uint8_t lcsLen = pUsbApi->hw->ReadEP(pUsbHandle, USB_ENDPOINT_OUT(0), (uint8_t*)tmpRxBuf);
-			receiveLineCoding = 0;
+
 			return LPC_OK;
-		}
-	} else if (event == USB_EVT_IN) {
-		if (receiveLineCoding) {
-			receiveLineCoding = 0;
-		}
+			break;
+
+		case USB_EVT_IN:
+			/*if (pCtrl->EP0Data.Count > 0) {
+				pUsbApi->core->DataInStage( hUsb );
+				return LPC_OK;
+			} else {
+				pUsbApi->core->StatusOutStage( hUsb );
+				return LPC_OK;
+			}*/
+
+			break;
+
+		default:
+			break;
 	}
 
 	return ERR_USBD_UNHANDLED;
 }
-
 
 ErrorCode_t UART_bulk_in_hdlr(USBD_HANDLE_T hUsb, void* data, uint32_t event) {
 	return LPC_OK;
@@ -244,9 +304,8 @@ void UART_IRQHandler() {
 
 ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 	USBD_API_INIT_PARAM_T usb_param;
-	USBD_CDC_INIT_PARAM_T cdc_param;
 	USB_CORE_DESCS_T desc;
-	USBD_HANDLE_T hUsb, hCdc;
+	USBD_HANDLE_T hUsb;
 	ErrorCode_t ret = LPC_OK;
 	uint32_t ep_indx;
 
@@ -261,7 +320,7 @@ ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 	usb_param.usb_reg_base = LPC_USB_BASE;
 	usb_param.mem_base = 0x10001000;
 	usb_param.mem_size = 0x1000;
-	usb_param.max_num_ep = 5;
+	usb_param.max_num_ep = 10;
 
 	/* init CDC params */
 	memset((void*) &cdc_param, 0, sizeof(USBD_CDC_INIT_PARAM_T));
@@ -272,25 +331,11 @@ ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 	desc.string_desc = (uint8_t *) &VCOM_StringDescriptor[0];
 	desc.full_speed_desc = (uint8_t *) &VCOM_ConfigDescriptor[0];
 	desc.high_speed_desc = (uint8_t *) &VCOM_ConfigDescriptor[0];
+	//desc.device_qualifier = (uint8_t*) &VCOM_DeviceQualifier[0];
 
 	/* USB Initialization */
 	//uint32_t usbMemSize = pUsbApi->hw->GetMemSize(&usb_param);
 	ret = pUsbApi->hw->Init(&hUsb, &desc, &usb_param);
-
-	if (ret != LPC_OK)
-		return ret;
-
-	// init CDC params
-	cdc_param.mem_base = 0x10001500;
-	cdc_param.mem_size = 0x300;
-	cdc_param.cif_intf_desc = (uint8_t *) &VCOM_ConfigDescriptor[USB_CONFIGUARTION_DESC_SIZE+8];
-	cdc_param.dif_intf_desc = (uint8_t *) &VCOM_ConfigDescriptor[USB_CONFIGUARTION_DESC_SIZE+8+ USB_INTERFACE_DESC_SIZE + 0x0013 + USB_ENDPOINT_DESC_SIZE];
-	//cdc_param.cif_intf_desc = (uint8_t *) &VCOM_ConfigDescriptor[USB_CONFIGUARTION_DESC_SIZE + 8 + USB_INTERFACE_DESC_SIZE + 0x0013 + USB_ENDPOINT_DESC_SIZE + USB_INTERFACE_DESC_SIZE + 2*USB_ENDPOINT_DESC_SIZE + 8];
-	//cdc_param.dif_intf_desc = (uint8_t *) &VCOM_ConfigDescriptor[USB_CONFIGUARTION_DESC_SIZE + 8 + USB_INTERFACE_DESC_SIZE + 0x0013 + USB_ENDPOINT_DESC_SIZE + USB_INTERFACE_DESC_SIZE + 2*USB_ENDPOINT_DESC_SIZE + 8 + USB_INTERFACE_DESC_SIZE + 0x0013 + USB_ENDPOINT_DESC_SIZE];
-
-
-	//uint32_t cdcMemSize = pUsbApi->cdc->GetMemSize(&cdc_param);
-	ret = pUsbApi->cdc->init(hUsb, &cdc_param, &hCdc);
 
 	if (ret != LPC_OK)
 		return ret;
@@ -303,10 +348,6 @@ ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 
 	CDC_OSC_rxBufferReadPos = 0;
 	CDC_OSC_rxBufferWritePos = 0;
-
-	//tmpRxBuf = (uint8_t*) (cdc_param.mem_base + (0 * USB_HS_MAX_BULK_PACKET));
-	//tmpTxBuf = (uint8_t*) (cdc_param.mem_base + (1 * USB_HS_MAX_BULK_PACKET));
-	cdc_param.mem_size -= (4 * USB_HS_MAX_BULK_PACKET);
 
 	CDC_OSC_txReady = 1;
 
@@ -338,7 +379,7 @@ ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 	if (ret != LPC_OK)
 		return ret;
 
-
+	/* register EP0 handler */
 	ret = pUsbApi->core->RegisterClassHandler(hUsb, EP0_hdlr, NULL);
 	if (ret != LPC_OK)
 		return ret;
@@ -350,7 +391,7 @@ ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 	/* USB Connect */
 	pUsbApi->hw->Connect(hUsb, 1);
 
-	UART_Init(9600);
+	UART_Init(9600, 8, PARITY_NONE, STOP_BIT_1); // 9600 8n1
 
 	stream->getPacketSize = CDC_getPacketSize;
 	stream->readPacket = CDC_readPacket;
@@ -361,13 +402,31 @@ ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 
 /* Part 1: Functions for UART Bridge */
 
-void UART_Init(uint32_t baudrate) {
+void UART_Init(uint32_t baudrate, uint8_t dataBits, parity_t parity, stop_bits_t stopBits) {
 	NVIC_DisableIRQ(UART_IRQn);
+
+	if (baudrate < 46 || baudrate > 3000000)
+		baudrate = 9600;
+
+	if ((stopBits != STOP_BIT_1) && (stopBits != STOP_BIT_2)) // only 1 and 2 stop bits supported
+		stopBits = STOP_BIT_1;
+
+	if (dataBits > 8 || dataBits < 5)
+		dataBits = 8;
+
+	CDC_UART_Config.baudrate = baudrate;
+	CDC_UART_Config.stopBits = stopBits;
+	CDC_UART_Config.parity = parity;
+	CDC_UART_Config.dataBits = dataBits;
+
 
 	LPC_SYSCON->SYSAHBCLKCTRL |= (1 << 12); // enable AHB clock for UART
 	LPC_SYSCON->UARTCLKDIV = 1; // 48MHz
 
-	LPC_USART->LCR = 0x83; 		// 8bit, 1stop, no parity, enable DLAB
+	LPC_USART->LCR = (dataBits - 5) | ((stopBits == STOP_BIT_1 ? 0 : 1) << 2)
+			| ((parity == PARITY_NONE ? 0 : 1) << 3) | (((parity - 1) & 0x3) << 4)
+			| BIT7;
+	//LPC_USART->LCR = 0x83; 		// 8bit, 1stop, no parity, enable DLAB
 	uint32_t divider = ((SystemCoreClock/LPC_SYSCON->UARTCLKDIV)/16)/baudrate;	// divider settings for baudrate
 	LPC_USART->DLM = divider / 256;
 	LPC_USART->DLL = divider % 256;
