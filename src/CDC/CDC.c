@@ -388,7 +388,7 @@ ErrorCode_t CDC_Init(OSCPacketStream *stream) {
 	/* USB Connect */
 	pUsbApi->hw->Connect(hUsb, 1);
 
-	UART_Init(9600, 8, PARITY_NONE, STOP_BIT_1); // 9600 8n1
+	//UART_Init(9600, 8, PARITY_NONE, STOP_BIT_1); // 9600 8n1
 
 	stream->getPacketSize = CDC_getPacketSize;
 	stream->readPacket = CDC_readPacket;
