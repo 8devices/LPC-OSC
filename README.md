@@ -13,8 +13,8 @@ over the USB interface. The packet format is also documented in the wiki.
 
 This project has two external dependencies, which should be included when building
 the project:
-1) OSC-Embedded library - for OSC support (link: https://github.com/GiedriusM/OSC-Embedded)
-2) MemoryManager library - for dynamic memory management (link: https://github.com/GiedriusM/MemoryManager)
+1) OSC-Embedded library - for OSC support (https://github.com/8devices/OSC-Embedded)
+2) MemoryManager library - for dynamic memory management (https://github.com/8devices/MemoryManager)
 
 Althouth the software was created and tested using only the LPC11U37 microcontroller
 on the LPCXpresso board, this project should compile and run on the other LPC11Uxx 
